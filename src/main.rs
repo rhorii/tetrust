@@ -23,14 +23,12 @@ fn main() {
                     x: game.pos.x,
                     y: game.pos.y + 1,
                 };
-                if !is_collision(&game.field, &new_pos, game.block) {
+                if !is_collision(&game.field, &new_pos, &game.block) {
                     game.pos = new_pos;
                 } else {
-                    fix_block(&mut game);
-                    elase_line(&mut game.field);
-
-                    game.pos = Position::init();
-                    game.block = rand::random();
+                    if landing(&mut game).is_err() {
+                        gameover(&game);
+                    }
                 }
                 draw(&game);
             }
@@ -67,9 +65,26 @@ fn main() {
                 move_block(&mut game, new_pos);
                 draw(&game);
             }
+            Ok(Key::Up) => {
+                let mut game = game.lock().unwrap();
+                hard_drop(&mut game);
+                if landing(&mut game).is_err() {
+                    gameover(&game);
+                }
+                draw(&game);
+            }
+            Ok(Key::Char('z')) => {
+                let mut game = game.lock().unwrap();
+                rotate_left(&mut game);
+                draw(&game);
+            }
+            Ok(Key::Char('x')) => {
+                let mut game = game.lock().unwrap();
+                rotate_right(&mut game);
+                draw(&game);
+            }
             Ok(Key::Char('q')) => {
-                println!("\x1b[?25h"); // show cursor again
-                return;
+                quit();
             },
             _ => (),
         }
