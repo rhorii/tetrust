@@ -35,6 +35,7 @@ pub const SCORE_TABLE: [usize; 5] = [
     100,
 ];
 
+#[derive(Clone)]
 pub struct Game {
     pub field: Field,
     pub pos: Position,
@@ -226,15 +227,14 @@ pub fn spawn_block(game: &mut Game) -> Result<(), ()> {
     }
 }
 
-pub fn gameover(game: &Game) -> ! {
+pub fn gameover(game: &Game) {
     draw(game);
     println!("GAMEOVER");
-    quit();
+    println!("press `q` key to exit");
 }
 
-pub fn quit() -> ! {
+pub fn quit() {
     println!("\x1b[?25h"); // show cursor again
-    std::process::exit(0);
 }
 
 fn super_rotation(field: &Field, pos: &Position, block: &BlockShape) -> Result<Position, ()> {
