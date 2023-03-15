@@ -1,6 +1,11 @@
-use crate::block::{BlockKind, BlockShape, BLOCKS};
-use crate::block::{BlockColor, block_kind, COLOR_TABLE,
+use std::collections::VecDeque;
+
+pub const NEXT_LENGTH: usize = 3;
+
+use crate::block::{
+    BlockKind, BlockShape, BLOCKS, BlockColor, block_kind, COLOR_TABLE,
     block_kind::WALL as W,
+    gen_block_7,
 };
 
 pub const FIELD_WIDTH:  usize = 11 + 2 + 2;
@@ -22,15 +27,29 @@ impl Position {
     }
 }
 
+pub const SCORE_TABLE: [usize; 5] = [
+    0,
+    1,
+    5,
+    25,
+    100,
+];
+
 pub struct Game {
     pub field: Field,
     pub pos: Position,
     pub block: BlockShape,
+    pub hold: Option<BlockShape>,
+    pub holded: bool,
+    pub next: VecDeque<BlockShape>,
+    pub next_buf: VecDeque<BlockShape>,
+    pub score: usize,
+    pub line: usize,
 }
 
 impl Game {
     pub fn new() -> Game {
-        Game {
+        let mut game = Game {
             field: [
                 [0,W,0,0,0,0,0,0,0,0,0,0,0,W,0],
                 [0,W,0,0,0,0,0,0,0,0,0,0,0,W,0],
@@ -57,7 +76,16 @@ impl Game {
             ],
             pos: Position::init(),
             block: BLOCKS[rand::random::<BlockKind>() as usize],
-        }
+            hold: None,
+            holded: false,
+            next: gen_block_7().into(),
+            next_buf: gen_block_7().into(),
+            score: 0,
+            line: 0,
+        };
+
+        spawn_block(&mut game).ok();
+        game
     }
 }
 
@@ -76,7 +104,7 @@ fn ghost_pos(field: &Field, pos: &Position, block: &BlockShape) -> Position {
 }
 
 #[allow(clippy::needless_range_loop)]
-pub fn draw(Game { field, pos, block }: &Game) {
+pub fn draw(Game { field, pos, block, hold, holded: _, next, next_buf: _, score, .. }: &Game) {
     let mut field_buf = *field;
     let ghost_pos = ghost_pos(field, pos, block);
     for y in 0..4 {
@@ -95,6 +123,30 @@ pub fn draw(Game { field, pos, block }: &Game) {
         }
     }
 
+    println!("\x1b[2;28HHOLD");
+    if let Some(hold) = hold {
+        for y in 0..4 {
+            print!("\x1b[{};28H", y+3);
+            for x in 0..4 {
+                print!("{}", COLOR_TABLE[hold[y][x]]);
+            }
+            println!();
+        }
+    }
+
+    println!("\x1b[8;28HNEXT");
+    for (i, next) in next.iter().take(NEXT_LENGTH).enumerate() {
+        for y in 0..4 {
+            print!("\x1b[{};28H", i*4+y+9);
+            for x in 0..4 {
+                print!("{}", COLOR_TABLE[next[y][x]]);
+            }
+            println!();
+        }
+    }
+
+    println!("\x1b[22;28H{}", score);
+
     println!("\x1b[H"); // move cursor to head
     for y in 0..FIELD_HEIGHT-1 {
         for x in 1..FIELD_WIDTH-1 {
@@ -102,6 +154,8 @@ pub fn draw(Game { field, pos, block }: &Game) {
         }
         println!();
     }
+
+    println!("\x1b[0m");
 }
 
 pub fn is_collision(field: &Field, pos: &Position, block: &BlockShape) -> bool {
@@ -118,7 +172,7 @@ pub fn is_collision(field: &Field, pos: &Position, block: &BlockShape) -> bool {
     false
 }
 
-pub fn fix_block(Game { field, pos, block }: &mut Game) {
+pub fn fix_block(Game { field, pos, block, .. }: &mut Game) {
     for y in 0..4 {
         for x in 0..4 {
             if block[y][x] != block_kind::NONE {
@@ -128,7 +182,8 @@ pub fn fix_block(Game { field, pos, block }: &mut Game) {
     }
 }
 
-pub fn elase_line(field: &mut Field) {
+pub fn elase_line(field: &mut Field) -> usize {
+    let mut count = 0;
     for y in 2..FIELD_HEIGHT-2 {
         let mut can_erase = true;
         for x in 2..FIELD_WIDTH-2 {
@@ -138,11 +193,13 @@ pub fn elase_line(field: &mut Field) {
             }
         }
         if can_erase {
+            count += 1;
             for y2 in (2..=y).rev() {
                 field[y2] = field[y2-1];
             }
         }
     }
+    count
 }
 
 pub fn move_block(game: &mut Game, new_pos: Position) {
@@ -153,7 +210,15 @@ pub fn move_block(game: &mut Game, new_pos: Position) {
 
 pub fn spawn_block(game: &mut Game) -> Result<(), ()> {
     game.pos = Position::init();
-    game.block = BLOCKS[rand::random::<BlockKind>() as usize];
+    game.block = game.next.pop_front().unwrap();
+
+    if let Some(next) = game.next_buf.pop_front() {
+        game.next.push_back(next);
+    } else {
+        game.next_buf = gen_block_7().into();
+        game.next.push_back(game.next_buf.pop_front().unwrap());
+    }
+
     if is_collision(&game.field, &game.pos, &game.block) {
         Err(())
     } else {
@@ -245,9 +310,29 @@ pub fn hard_drop(game: &mut Game) {
     move_block(game, new_pos);
 }
 
+pub fn hold(game: &mut Game) {
+    if game.holded {
+        return;
+    }
+
+    if let Some(mut hold) = game.hold {
+        std::mem::swap(&mut hold, &mut game.block);
+        game.hold = Some(hold);
+        game.pos = Position::init();
+    } else {
+        game.hold = Some(game.block);
+        spawn_block(game).ok();
+    }
+
+    game.holded = true;
+}
+
 pub fn landing(game: &mut Game) -> Result<(), ()> {
     fix_block(game);
-    elase_line(&mut game.field);
+    let line = elase_line(&mut game.field);
+    game.score += SCORE_TABLE[line];
+    game.line += line;
     spawn_block(game)?;
+    game.holded = false;
     Ok(())
 }
