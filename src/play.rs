@@ -107,7 +107,7 @@ pub fn auto() {
         draw(&game);
 
         loop {
-            let elite = eval(&game);
+            let elite = eval(&game, &[100, 1, 10, 100]);
             game = elite;
 
             if landing(&mut game).is_err() {
